@@ -8,6 +8,7 @@ from __future__ import annotations
 import functools
 import math
 import os
+import shutil
 import sqlite3
 from typing import Optional
 
@@ -15,7 +16,22 @@ import networkx as nx
 import osmnx as ox
 
 GRAPH_PATH = "data/walk.graphml"
-DB_PATH = "data/safepath.db"
+_BUNDLED_DB_PATH = "data/safepath.db"
+
+
+def _resolve_db_path() -> str:
+    # ponytail: Vercel 的部署包只读，/report 的 INSERT 必须落在 /tmp（Vercel 运行时
+    # 自动设 VERCEL=1）。/tmp 每次冷启动清空——上报撑不过冷启动，但至少不再 500。
+    # 真要持久化上报，需要换外部数据库（Postgres/Turso 等），当前 demo 用不上。
+    if not os.environ.get("VERCEL"):
+        return _BUNDLED_DB_PATH
+    tmp_path = "/tmp/safepath.db"
+    if not os.path.exists(tmp_path):
+        shutil.copyfile(_BUNDLED_DB_PATH, tmp_path)
+    return tmp_path
+
+
+DB_PATH = _resolve_db_path()
 ALPHA = 1.5
 
 # 预设地标（下拉起终点）。坐标为 Penn 周边真实地标近似。
