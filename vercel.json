@@ -5,7 +5,14 @@
       "maxDuration": 60
     }
   },
-  "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/api/index" }
+  "routes": [
+    { "src": "/static/(.*)", "dest": "/static/$1" },
+    {
+      "src": "/(.*)",
+      "dest": "/api/index",
+      "transforms": [
+        { "type": "request.path", "op": "set", "args": "/$1" }
+      ]
+    }
   ]
 }
