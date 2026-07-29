@@ -1,0 +1,433 @@
+/* SafePath — 亮色克制风。CSS 变量配色系统，全屏浅色地图 + 左侧实色面板。 */
+
+:root {
+  /* 品牌主色（与 app.py PolyLine 锁步同步 — 改色必须两边一起改） */
+  --c-short: #2563eb;       /* 最短路径 实色蓝 */
+  --c-safe: #15803d;        /* 安全路径 墨绿 */
+  --c-ink: #0f172a;         /* 主文字（slate-900） */
+  --c-ink-soft: #475569;    /* 次文字（slate-600） */
+  --c-muted: #64748b;       /* 三级文字 / caption（slate-500） */
+  --c-line: #e2e8f0;        /* 分隔线 / 边框（slate-200） */
+  --c-bg: #f1f5f9;          /* 页面底（slate-100，地图在上层基本不露） */
+  --c-surface: #ffffff;     /* 卡片/面板（纯白实色） */
+  --c-field: #f8fafc;       /* 输入框/卡片内嵌面（slate-50） */
+
+  /* 三态语义色（亮色 tint：浅 bg + 深 ink 保证对比度） */
+  --c-none-bg: #f1f5f9;    --c-none-ink: #475569; --c-none-bar: #94a3b8;
+  --c-minor-bg: #fef9c3;   --c-minor-ink: #854d0e; --c-minor-bar: #ca8a04;
+  --c-clear-bg: #dcfce7;   --c-clear-ink: #166534; --c-clear-bar: var(--c-safe);
+  --c-danger: #dc2626;
+
+  /* 风险图例渐变（与 app.py risk_color() 端点锁步：绿→黄→红） */
+  --c-risk-low: #15803d;
+  --c-risk-mid: #ca8a04;
+  --c-risk-high: #dc2626;
+
+  /* 投影 / 圆角 */
+  --shadow-sm: 0 1px 2px rgba(15,23,42,.06), 0 1px 3px rgba(15,23,42,.04);
+  --shadow-md: 0 4px 24px rgba(15,23,42,.10), 0 1px 3px rgba(15,23,42,.06);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--c-ink);
+  background: var(--c-bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== 全屏地图铺底（get_root().render() 返回无 iframe 的 div.leaflet-container） ===== */
+.map-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: var(--c-bg);
+}
+.map-stage .leaflet-container { width: 100%; height: 100%; background: #e8edf2; }
+/* C3 武装态：地图十字光标，提示用户"下一次点击会落点" */
+.map-stage.picking,
+.map-stage.picking .leaflet-container { cursor: crosshair; }
+
+/* ===== 左侧浮动控制面板（实色卡片，无玻璃模糊） ===== */
+.panel {
+  position: fixed;
+  top: 24px; left: 24px;
+  width: 380px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  z-index: 10;
+  transition: transform .25s ease;
+}
+/* 折叠态：桌面收起成左侧窄条（露出品牌 + 展开按钮），把地图左 1/3 还给用户 */
+.panel.collapsed {
+  width: 56px; max-width: 56px; overflow: hidden;
+}
+.panel.collapsed .panel-body,
+.panel.collapsed .panel-foot { display: none; }
+.panel.collapsed .panel-head {
+  border-bottom: 0; padding: .6rem; display: grid; place-items: center;
+}
+.panel.collapsed .brand .mark { width: 36px; height: 36px; border-radius: 8px; }
+.panel.collapsed .brand h1,
+.panel.collapsed .brand .tag { display: none; }
+/* 收起/展开切换按钮 */
+.panel-toggle {
+  position: absolute; top: 14px; right: 14px;
+  width: 26px; height: 26px; border: 1px solid var(--c-line);
+  background: var(--c-surface); border-radius: 6px; cursor: pointer;
+  display: grid; place-items: center; color: var(--c-muted);
+  z-index: 12;
+}
+.panel-toggle:hover { color: var(--c-ink); border-color: var(--c-ink-soft); }
+.panel-toggle svg { width: 14px; height: 14px; }
+.panel.collapsed .panel-toggle { position: static; }
+
+.panel-head {
+  padding: 1.1rem 1.25rem .85rem;
+  border-bottom: 1px solid var(--c-line);
+  position: sticky; top: 0;
+  background: var(--c-surface);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.brand { display: flex; align-items: center; gap: .6rem; }
+.brand .mark {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--c-safe);
+  display: grid; place-items: center; color: #fff;
+  flex: none;
+}
+.brand .mark svg { width: 18px; height: 18px; }
+.panel-head h1 { margin: 0; font-size: 1.35rem; letter-spacing: -.01em; }
+.panel-head .tag { margin: .15rem 0 0; font-size: .9rem; color: var(--c-muted); }
+
+.panel-body { padding: 1rem 1.25rem 1.25rem; }
+
+/* ===== 表单 ===== */
+.route-form .fields { display: grid; gap: .6rem; }
+/* .field 现在是 combobox 容器：dot + lbl + (input + pick-btn) 一行，ul.ac 在流里展开。
+   ponytail: 候选列表走正常文档流（position:absolute 会被 .panel 的 overflow-y:auto 裁掉，
+   移动抽屉更糟）。升级路径 = position:fixed + getBoundingClientRect() 跟随输入框。 */
+.field {
+  display: flex; align-items: center; flex-wrap: wrap; gap: .4rem;
+  background: var(--c-field); border: 1px solid var(--c-line);
+  border-radius: var(--radius-sm); padding: .45rem .6rem;
+  transition: border-color .15s, box-shadow .15s;
+}
+.field:focus-within { border-color: var(--c-short); box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+.field .lbl {
+  font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--c-muted); width: 2.75rem; flex: none;
+}
+.field .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.field .dot.from { background: var(--c-safe); }
+.field .dot.to { background: var(--c-danger); }
+/* combobox 输入框：占满主行剩余空间，无原生边框（容器统一给边框） */
+.field .place-input {
+  flex: 1 1 auto; min-width: 0;
+  border: 0; background: transparent; font-size: 1.02rem; font-family: var(--font);
+  color: var(--c-ink); outline: none; padding: .15rem 0;
+}
+.field .place-input::placeholder { color: var(--c-muted); opacity: .8; }
+/* pick-btn：图钉按钮，武装态高亮 */
+.field .pick-btn,
+.report-pick {
+  flex: none; width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border: 1px solid var(--c-line); border-radius: 6px;
+  background: var(--c-surface); color: var(--c-muted); cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.field .pick-btn:hover, .report-pick:hover { color: var(--c-ink); border-color: var(--c-ink-soft); }
+.field .pick-btn svg, .report-pick svg { width: 16px; height: 16px; }
+.field .pick-btn.is-armed {
+  color: #fff; background: var(--c-short); border-color: var(--c-short);
+  box-shadow: 0 0 0 3px rgba(37,99,235,.2);
+}
+/* report 的 pick 按钮：跟 Use my location 同行宽按钮（非图标按钮） */
+.report-pick {
+  width: auto; padding: .6rem 1rem; font-size: .95rem; font-weight: 600;
+  font-family: var(--font); gap: .35rem;
+}
+.report-pick.is-armed { color: #fff; background: var(--c-short); border-color: var(--c-short); }
+
+/* autocomplete 候选列表：流内展开（不 absolute），宽度撑满 .field */
+.field .ac {
+  flex: 1 1 100%;
+  list-style: none; margin: .2rem 0 0; padding: 0;
+  background: var(--c-surface); border: 1px solid var(--c-line);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-sm);
+  max-height: 220px; overflow-y: auto; z-index: 5;
+}
+.field .ac[hidden] { display: none; }
+.field .ac li {
+  padding: .45rem .65rem; font-size: .92rem; color: var(--c-ink-soft);
+  cursor: pointer; border-bottom: 1px solid var(--c-line);
+  line-height: 1.35;
+}
+.field .ac li:last-child { border-bottom: 0; }
+.field .ac li:hover, .field .ac li.active { background: var(--c-field); color: var(--c-ink); }
+.field .ac li[aria-selected="true"] { background: var(--c-field); }
+
+button.primary {
+  margin-top: .75rem; width: 100%;
+  background: var(--c-short);
+  color: #fff; border: 0; padding: .8rem 1rem;
+  border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 1.05rem; font-weight: 600;
+  box-shadow: var(--shadow-sm); transition: background .15s, box-shadow .15s;
+}
+button.primary:hover { background: #1d4ed8; box-shadow: var(--shadow-md); }
+button.primary:active { background: #1e40af; }
+/* C4 loading：submit 后按钮禁用 + CSS spinner（纯 border 旋转，无图无库） */
+button.primary.loading {
+  background: #1d4ed8; cursor: progress; position: relative;
+  display: inline-flex; align-items: center; justify-content: center; gap: .55rem;
+}
+button.primary.loading::before {
+  content: ""; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.4); border-top-color: #fff;
+  animation: sp-spin .7s linear infinite;
+}
+button.primary:disabled { opacity: .75; }
+@keyframes sp-spin { to { transform: rotate(360deg); } }
+
+/* ===== 风险图例 ===== */
+.legend {
+  margin-top: .9rem;
+  transition: opacity .25s ease; /* 关 risk 图层时随 app.js syncLegend 淡出 */
+}
+.legend.dim { opacity: .3; }
+.legend-bar {
+  height: 8px; border-radius: 4px; margin: .3rem 0 .2rem;
+  background: linear-gradient(90deg, var(--c-risk-low), var(--c-risk-mid), var(--c-risk-high));
+}
+.legend-labels { display: flex; justify-content: space-between; font-size: .8rem; color: var(--c-muted); }
+.legend-hint { font-size: .85rem; color: var(--c-muted); margin: .4rem 0 0; line-height: 1.4; }
+
+/* ===== 路线对比 ===== */
+.compare { margin-top: 1rem; }
+.section-label {
+  font-size: .82rem; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--c-muted); margin: 0 0 .5rem;
+}
+.routes { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.route-card {
+  background: var(--c-field); border: 1px solid var(--c-line);
+  border-radius: var(--radius-sm); padding: .7rem .75rem;
+  border-top: 3px solid var(--c-line);
+}
+.route-card.short { border-top-color: var(--c-short); }
+.route-card.safe { border-top-color: var(--c-safe); }
+.route-card .name { font-size: .82rem; text-transform: uppercase; letter-spacing: .05em; color: var(--c-muted); }
+/* 主数字 = 高危路段数（两条路差异最大的维度），距离降为次要 */
+.route-card .hot { font-size: 1.5rem; font-weight: 700; margin: .1rem 0; line-height: 1.1; }
+.route-card .hot .unit { font-size: .82rem; font-weight: 500; color: var(--c-muted); text-transform: lowercase; }
+.route-card .dist { font-size: 1rem; font-weight: 600; margin: .15rem 0; color: var(--c-ink-soft); }
+.route-card .dist .unit { font-size: .85rem; font-weight: 500; color: var(--c-muted); }
+.route-card .meta { font-size: .86rem; color: var(--c-muted); }
+
+/* 三态提示条（口语化 verdict 容器） */
+.verdict {
+  margin-top: .75rem; padding: .7rem .85rem; border-radius: var(--radius-sm);
+  font-size: .95rem; display: flex; flex-wrap: wrap; gap: .55rem; align-items: flex-start;
+  border-left: 4px solid var(--c-none-bar); background: var(--c-none-bg); color: var(--c-none-ink);
+}
+.verdict > span:not(.verdict-note) { flex: 1 1 auto; min-width: 0; }
+.verdict .hint { display: block; margin-top: .2rem; font-size: .78rem; color: var(--c-muted); }
+.verdict-note { flex-basis: 100%; font-size: .82rem; color: var(--c-danger); font-weight: 600; }
+[data-avoided] { cursor: help; border-bottom: 1px dotted currentColor; }
+.verdict.minor { border-left-color: var(--c-minor-bar); background: var(--c-minor-bg); color: var(--c-minor-ink); }
+.verdict.clear { border-left-color: var(--c-clear-bar); background: var(--c-clear-bg); color: var(--c-clear-ink); }
+.verdict .ico { flex: none; margin-top: .05rem; width: 16px; height: 16px; }
+.verdict .ico svg { width: 16px; height: 16px; display: block; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: .25rem;
+  background: var(--c-clear-bar); color: #fff; font-size: .72rem; font-weight: 700;
+  padding: .12rem .45rem; border-radius: 999px; margin-left: .35rem;
+}
+
+/* ===== 上报折叠区 ===== */
+details.report {
+  margin-top: 1rem; border-top: 1px solid var(--c-line); padding-top: .9rem;
+}
+details.report > summary {
+  cursor: pointer; font-size: .98rem; font-weight: 600; color: var(--c-ink);
+  list-style: none; display: flex; align-items: center; gap: .4rem;
+}
+details.report > summary::-webkit-details-marker { display: none; }
+details.report > summary .chev { transition: transform .15s; color: var(--c-muted); }
+details.report[open] > summary .chev { transform: rotate(90deg); }
+.report-hint { font-size: .88rem; color: var(--c-muted); margin: .5rem 0 .75rem; }
+.report-form { display: grid; gap: .55rem; }
+.report-form .row { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+.report-form label {
+  display: flex; flex-direction: column; gap: .25rem;
+  font-size: .86rem; color: var(--c-muted);
+}
+.report-form input, .report-form select, .report-form textarea {
+  padding: .55rem .6rem; border: 1px solid var(--c-line); border-radius: var(--radius-sm);
+  font-size: 1rem; font-family: var(--font); color: var(--c-ink); background: var(--c-surface);
+  transition: border-color .15s, box-shadow .15s;
+}
+.report-form input:focus, .report-form select:focus, .report-form textarea:focus {
+  border-color: var(--c-short); box-shadow: 0 0 0 3px rgba(37,99,235,.15); outline: none;
+}
+.report-form textarea { min-height: 3.2rem; resize: vertical; }
+
+/* report 定位按钮（现场定位 > 手敲坐标）；loading 态给反馈 */
+.report-form .locate {
+  width: 100%;
+  background: var(--c-safe);
+  color: #fff; border: 0; padding: .75rem 1rem;
+  border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 1.02rem; font-weight: 600;
+  box-shadow: var(--shadow-sm); transition: background .15s, box-shadow .15s, opacity .15s;
+}
+.report-form .locate:hover { background: #166534; box-shadow: var(--shadow-md); }
+.report-form .locate:active { background: #14532d; }
+.report-form .locate.loading { opacity: .6; cursor: progress; }
+.report-form .locate:disabled { opacity: .4; cursor: not-allowed; }
+
+/* 手输兜底：默认折叠，定位失败时展开 */
+.report-manual { border: 1px solid var(--c-line); border-radius: var(--radius-sm); padding: .1rem .6rem; }
+.report-manual > summary {
+  cursor: pointer; font-size: .78rem; color: var(--c-muted);
+  list-style: none; padding: .45rem 0;
+}
+.report-manual > summary::-webkit-details-marker { display: none; }
+.report-manual > summary::before { content: "▸ "; transition: transform .15s; display: inline-block; }
+.report-manual[open] > summary::before { content: "▾ "; }
+.report-manual .row { margin-bottom: .5rem; }
+
+button.secondary {
+  background: var(--c-surface); color: var(--c-ink); border: 1px solid var(--c-line);
+  padding: .6rem 1rem; border-radius: var(--radius-sm); cursor: pointer; font-size: 1rem;
+  font-weight: 600; transition: border-color .15s, background .15s;
+}
+button.secondary:hover { border-color: var(--c-short); background: var(--c-field); }
+
+.panel-foot { padding: .85rem 1.4rem 1.1rem; border-top: 1px solid var(--c-line); font-size: .9rem; }
+.panel-foot a { color: var(--c-short); text-decoration: none; }
+.panel-foot a:hover { text-decoration: underline; }
+
+/* ===== flash（浮在面板顶部上方） ===== */
+.flash {
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+  list-style: none; padding: 0; margin: 0; z-index: 30; width: min(92vw, 420px);
+  display: grid; gap: .4rem;
+}
+.flash li {
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  color: var(--c-clear-ink); padding: .6rem .9rem;
+  border-radius: var(--radius-sm); border-left: 4px solid var(--c-safe);
+  box-shadow: var(--shadow-md); font-size: .88rem;
+}
+.flash li.ok { border-left-color: var(--c-safe); }
+.flash li.error { background: #fef2f2; color: #991b1b; border-left-color: var(--c-danger); }
+
+/* 点选起终点提示 + 清除按钮（WP3） */
+.pick-hint { font-size: .82rem; color: var(--c-muted); margin: .5rem 0 0; }
+.clear-pins {
+  margin-top: .5rem; width: 100%;
+  background: var(--c-surface); color: var(--c-muted);
+  border: 1px solid var(--c-line); padding: .5rem 1rem;
+  border-radius: var(--radius-sm); cursor: pointer;
+  font-size: .9rem; font-weight: 600; font-family: var(--font);
+  transition: color .15s, border-color .15s;
+}
+.clear-pins:hover { color: var(--c-ink); border-color: var(--c-ink-soft); }
+
+/* ===== 响应式：窄屏改为底部抽屉（默认露摘要，点开展开），不再全屏盖住地图 ===== */
+@media (max-width: 560px) {
+  /* 抽屉贴底：默认 max-height 露摘要行，.expanded 拉高可滚动看全文 */
+  .panel {
+    left: 0; right: 0; top: auto; bottom: 0;
+    width: auto; max-width: none;
+    max-height: 38vh;             /* 默认露路线卡片摘要 */
+    border-radius: var(--radius) var(--radius) 0 0;
+    transition: max-height .25s ease;
+  }
+  .panel.expanded { max-height: 85vh; }
+  /* 移动端取消桌面折叠窄条（窄屏用抽屉，不用折叠） */
+  .panel.collapsed { width: auto; max-width: none; }
+  .panel.collapsed .panel-body,
+  .panel.collapsed .panel-foot { display: block; }
+  .panel.collapsed .panel-head { display: block; padding: 1.1rem 1.25rem .85rem; }
+  .panel.collapsed .brand h1,
+  .panel.collapsed .brand .tag { display: block; }
+  /* 抽屉抓手：顶部一条提示"上滑展开" */
+  .panel-head::before {
+    content: ""; display: block; width: 40px; height: 4px;
+    margin: 0 auto .5rem; border-radius: 2px; background: var(--c-line);
+  }
+}
+
+/* ===== about 页（非地图布局，沿用配色系统） ===== */
+.about-wrap { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+.about-head { margin-bottom: 1.5rem; }
+.about-head .brand { margin-bottom: .6rem; }
+.about-head h1 { margin: 0; font-size: 1.6rem; letter-spacing: -.015em; }
+.about-head .tag { color: var(--c-muted); font-size: .9rem; }
+.back-link { display: inline-flex; align-items: center; gap: .3rem; color: var(--c-short);
+  text-decoration: none; font-size: .88rem; margin-bottom: 1.25rem; }
+.about-wrap section { margin-bottom: 1.75rem; }
+.about-wrap h2 { font-size: 1.05rem; margin: 0 0 .6rem; }
+.about-wrap p, .about-wrap li { color: var(--c-ink-soft); font-size: .92rem; }
+.about-wrap ol, .about-wrap ul { padding-left: 1.2rem; }
+.about-wrap li { margin-bottom: .4rem; }
+.about-wrap code { background: var(--c-field); padding: .1rem .35rem; border-radius: 4px; font-size: .85em; border: 1px solid var(--c-line); }
+.about-wrap a { color: var(--c-short); }
+.attrib { font-size: .82rem; color: var(--c-muted); background: var(--c-field);
+  padding: .7rem .9rem; border-radius: var(--radius-sm); border: 1px solid var(--c-line); }
+.about-foot { margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--c-line); }
+
+/* ===== 自建图层 toggle 卡片（实色，取代 folium 默认 LayerControl） ===== */
+.sp-layer-toggle {
+  position: absolute;
+  top: 12px; right: 12px;
+  z-index: 1001; /* leaflet 控件层是 1000，盖在上面 */
+  display: grid; gap: .35rem;
+  padding: .5rem;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+.sp-layer-toggle button {
+  white-space: nowrap;
+  background: var(--c-surface); color: var(--c-muted);
+  border: 1px solid var(--c-line);
+  padding: .4rem .65rem; border-radius: 6px;
+  font-size: .78rem; font-weight: 600; cursor: pointer; font-family: var(--font);
+  transition: color .15s, background .15s, border-color .15s;
+  display: inline-flex; align-items: center; gap: .35rem;
+}
+.sp-layer-toggle button:hover { color: var(--c-ink); border-color: var(--c-ink-soft); }
+.sp-layer-toggle button.active {
+  color: var(--c-ink); background: var(--c-field); border-color: var(--c-short);
+}
+
+/* 图层按钮内联 SVG（app.js 注入 svg 节点） */
+.sp-layer-toggle button svg { width: 13px; height: 13px; flex: none; }
+
+/* 上报后定位高亮 pin —— CSS 圆点 pin（无 emoji），leaflet divIcon 容器 */
+.sp-report-pin {
+  width: 18px; height: 18px; border-radius: 50% 50% 50% 0;
+  background: var(--c-short); transform: rotate(-45deg);
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(15,23,42,.4);
+  position: relative; left: 0; top: 0;
+}

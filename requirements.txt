@@ -1,0 +1,8 @@
+flask>=3.0
+osmnx>=2.0
+networkx>=3.0
+folium>=0.18
+pandas>=2.0
+geopandas>=1.0
+shapely>=2.0
+requests>=2.28

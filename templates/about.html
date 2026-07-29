@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>About — SafePath</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="about-wrap">
+
+    <div class="about-head">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 4v8l-4 4"/><path d="M13 4a2 2 0 1 0 0-.01"/><path d="M9 16l-3 4"/><path d="M13 12l4 2"/>
+          </svg>
+        </span>
+        <div>
+          <h1>SafePath</h1>
+          <p class="tag">Methodology, data sources &amp; limitations</p>
+        </div>
+      </div>
+    </div>
+
+    <a class="back-link" href="/">← Back to map</a>
+
+    <section>
+      <h2>What this is</h2>
+      <p>SafePath overlays a "safety data layer" (crime history, user-reported sidewalk/accessibility
+         issues) onto the walking network around the University of Pennsylvania, then finds a
+         <em>safer</em> route — not just the shortest one. It is a Penn summer-program final project
+         spanning Pandas (data prep), Graph (routing), and Flask (web).</p>
+    </section>
+
+    <section>
+      <h2>Data sources</h2>
+      <ul>
+        <li><strong>Crime incidents</strong> — City of Philadelphia, via OpenDataPhilly
+          (<a href="https://opendataphilly.org/datasets/crime-incidents/">Crime Incidents</a>) and
+          the PHL Carto SQL API
+          (<a href="https://phl.carto.com/api/v2/sql">phl.carto.com</a>, table
+          <code>incidents_part1_part2</code>). Downloaded as yearly CSV; the last three years
+          (2024–2026) are combined to smooth single-year fluctuation.</li>
+        <li><strong>Walking network</strong> — OpenStreetMap, via OSMnx.</li>
+        <li><strong>Sidewalk / ADA conditions</strong> — user-submitted reports only. No open
+          dataset for Philadelphia sidewalk condition / ADA ramp status was used.</li>
+      </ul>
+      <p class="attrib">Crime data © City of Philadelphia / Philadelphia Police Department.
+         Map data © OpenStreetMap contributors. Light basemap © CARTO.</p>
+    </section>
+
+    <section>
+      <h2>Method</h2>
+      <ol>
+        <li>Download the OSM walking graph within ~3.5 km of Penn (UTM-projected, cached as GraphML).</li>
+        <li>Buffer each street edge by 120 m and assign each crime point to every covering edge,
+            <em>weighted by distance</em>: a point right on the edge counts fully, one at the buffer
+            edge decays to zero. This spreads risk onto the 2–3 nearest parallel streets (after
+            network-KDE practice) rather than only the closest one.</li>
+        <li>Weight each crime by a severity score (violent &gt; property &gt; order) and sum the
+            distance-decayed contributions per edge. This sum is the edge's raw risk; it is
+            <em>not</em> divided by edge length — because the 120 m buffer means a short
+            crosswalk segment and a long street sitting in the same crime field collect nearly
+            the same crime mass, so dividing by length would mostly measure "how short is the
+            edge", not "how dangerous". Normalize each edge to its
+            <em>percentile rank</em> (ties averaged), so mid-risk blocks keep a visible penalty
+            and Dijkstra sees the full dynamic range. <strong>Trade-off:</strong> rank
+            normalization discards magnitude — the riskiest and the merely-risky block become the
+            same rank-distance apart — but the p90 high-risk threshold is itself rank-based, so the
+            two are semantically consistent.</li>
+        <li><code>safety_weight = length × (1 + α · risk_norm)</code> with α = 1.5. The riskiest edge
+            is penalized to 2.5× its true length; a zero-crime edge keeps its true length.</li>
+        <li>Run Dijkstra twice on the same graph — once on <code>length</code> (shortest), once on
+            <code>safety_weight</code> (safest). User-reported issues multiply the nearest edge's
+            safety weight, so submitted reports change future routes.</li>
+      </ol>
+      <p>The map offers two toggleable risk layers (top-right control): <strong>risk-colored
+         streets</strong> (each street shaded green→yellow→red by risk) and a <strong>crime-density
+         heatmap</strong>. Together they make <em>where</em> the danger concentrates visible —
+         the core of the product.</p>
+    </section>
+
+    <section>
+      <h2>Limitations</h2>
+      <ol>
+        <li><strong>Proxy, not prediction.</strong> Historical crime density is not future risk.</li>
+        <li><strong>Snapshot, not real-time.</strong> Local CSV; the optional Carto API is not wired
+            to live data in this MVP.</li>
+        <li><strong>Fixed area.</strong> A ~3.5 km radius around Penn; not city-wide.</li>
+        <li><strong>Anecdotal sidewalk data.</strong> Reports are user-submitted, sparse, unverified.</li>
+        <li><strong>Simple model.</strong> Distance-decayed weighting, single α, no time-of-day
+            decomposition.</li>
+        <li><strong>Detours are short, but the route really does change.</strong> Central Philly is
+            a tight grid, so switching to a parallel street costs almost nothing in distance —
+            measured detours run about +3% (and up to +18% on the worst pairs), while 48–85% of the
+            individual segments differ. Judge the split by <em>which streets</em> it takes, not by
+            how much longer it is. User reports are an <em>additional</em> source of divergence
+            (they bump one segment hard), not the only one.</li>
+        <li><strong>Intersection double-counting.</strong> The buffer overlaps at intersections,
+            amplifying intersection risk by design.</li>
+        <li><strong>Length + weight only.</strong> No turn penalties, signals, grade, or lighting.</li>
+        <li><strong>Severity weights are judgment calls</strong>, not empirically derived.</li>
+        <li><strong>"Use my location" needs a secure context.</strong> The report locator uses
+            <code>navigator.geolocation</code>, which browsers only expose over HTTPS (or
+            <code>localhost</code>, as in this local demo). Deploy behind HTTPS for the button to
+            work in production; manual coordinate entry is the fallback.</li>
+      </ol>
+    </section>
+
+    <div class="about-foot">
+      <a class="back-link" href="/">← Back to map</a>
+    </div>
+
+  </div>
+</body>
+</html>

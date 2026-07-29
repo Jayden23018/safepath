@@ -1,0 +1,19 @@
+# raw crime CSVs (66MB, prep-time only, routing.py/app.py never touch them)
+/*_crime_data.csv
+data/*.csv
+# osmnx HTTP cache
+cache/
+
+# data/safepath.db + data/walk.graphml are committed on purpose:
+# routing.py loads both at runtime (GRAPH_PATH/DB_PATH), so a fresh
+# clone/deploy needs them present without re-running prep_data.py.
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# os
+.DS_Store
