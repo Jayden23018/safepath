@@ -156,9 +156,16 @@ def build_map(
                    zoom_control="bottomright")
 
     # 图层1：风险上色街道（只画 risk 较高的边——80k 条全画会卡，低风险边视觉本就绿色无信息）
+    # 单个 GeoJson 装下所有边，不再逐条构造 folium.PolyLine（20000 个对象拖慢渲染）。
     risk_edges = folium.FeatureGroup(name="Risk-colored streets", show=True)
-    for coords, color in _load_edge_risk_colors():
-        folium.PolyLine(coords, color=color, weight=2.5, opacity=0.6).add_to(risk_edges)
+    risk_geojson = _load_edge_risk_colors()
+    if risk_geojson["features"]:
+        folium.GeoJson(
+            risk_geojson,
+            style_function=lambda f: {
+                "color": f["properties"]["color"], "weight": 2.5, "opacity": 0.6,
+            },
+        ).add_to(risk_edges)
     risk_edges.add_to(m)
 
     # 图层2：犯罪密度热力图（默认关，点太多）
@@ -261,14 +268,20 @@ def risk_color(rn: float) -> str:
 _RISK_DRAW_LIMIT = 20000
 
 
-def _load_edge_risk_colors() -> list[tuple[list[tuple[float, float]], str]]:
-    """读 edge_risk → [(坐标列表, 颜色)] 供风险街道图层。取 risk 最高的 top-N 条。
+def _load_edge_risk_colors() -> dict:
+    """读 edge_risk → GeoJSON FeatureCollection 供风险街道图层。取 risk 最高的 top-N 条。
 
-    ponytail: 试过 lru_cache，实测只省 ~0.1s（/route 的 2.3s 是 folium 渲染本身，
-    不是这里），不值得换来"重跑 prep_data 后颜色不更新"的隐患。不缓存。
+    改用单个 folium.GeoJson 而非 20000 个独立 folium.PolyLine：旧实现里 build_map 的
+    for 循环要构造 20000 个 PolyLine 对象各自序列化进 HTML，是渲染耗时的主要来源；
+    GeoJson 把同一批坐标打包成一个 FeatureCollection，一次性交给 leaflet 渲染。
+    索引扫描 vs 全表排序、单对象 vs 多对象的具体收益待重新实测（旧的"only省0.1s"结论
+    是针对 PolyLine 方案量的，GeoJson 换法后不再适用）。
+
+    GeoJSON 坐标顺序是 [lng, lat]（与 PolyLine 用的 (lat,lng) 相反）。
     """
+    empty = {"type": "FeatureCollection", "features": []}
     if not os.path.exists(R.DB_PATH):
-        return []
+        return empty
     try:
         conn = sqlite3.connect(R.DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -278,32 +291,37 @@ def _load_edge_risk_colors() -> list[tuple[list[tuple[float, float]], str]]:
             (_RISK_DRAW_LIMIT,)).fetchall()
         conn.close()
     except sqlite3.OperationalError:  # 表不存在（prep 未跑）→ 空图层
-        return []
+        return empty
     if not rows:
-        return []
+        return empty
     G = R.load_weighted_graph()  # 进程内缓存的 GraphML，解析 u,v→坐标
-    out = []
+    features = []
     for r in rows:
         try:
             d = G.edges[r["u"], r["v"], r["k"]]
             if "geometry" in d:
                 xs, ys = d["geometry"].xy
-                coords = list(zip(ys.tolist(), xs.tolist()))
+                coords = list(zip(xs.tolist(), ys.tolist()))
             else:
-                coords = [(G.nodes[r["u"]]["y"], G.nodes[r["u"]]["x"]),
-                          (G.nodes[r["v"]]["y"], G.nodes[r["v"]]["x"])]
-            out.append((coords, risk_color(r["risk_normalized"])))
+                coords = [(G.nodes[r["u"]]["x"], G.nodes[r["u"]]["y"]),
+                          (G.nodes[r["v"]]["x"], G.nodes[r["v"]]["y"])]
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "LineString", "coordinates": coords},
+                "properties": {"color": risk_color(r["risk_normalized"])},
+            })
         except KeyError:  # 边在风险表但不在图（缓存不一致）→ 跳过
             continue
-    return out
+    return {"type": "FeatureCollection", "features": features}
 
 
 @functools.lru_cache(maxsize=1)
 def _load_crime_points() -> tuple[tuple[float, float, float], ...]:
-    """读 crime_points → [(lat,lng,severity)] 供热力图层。采样+缓存。
+    """读 crime_points → [(lat,lng,severity)] 供热力图层。缓存。
 
-    10万点全塞 HTML 会撑到 ~48MB；密度热力图对采样不敏感，随机取 5000 点足够
-    呈现热点分布。lru_cache 避免每次渲染重读（demo 单进程，crime_points 不变）。
+    crime_points 表本身已在 prep_data 阶段采样到 ≤5000 行（HEATMAP_SAMPLE_N），
+    这里直接读全表，不再 ORDER BY RANDOM() —— 那是对 10万+ 行做全表随机排序的
+    经典反模式，每次冷启动都要重付。lru_cache 避免同进程内每次渲染重读。
     返回 tuple 供 lru_cache hash。
     """
     if not os.path.exists(R.DB_PATH):
@@ -311,9 +329,7 @@ def _load_crime_points() -> tuple[tuple[float, float, float], ...]:
     try:
         conn = sqlite3.connect(R.DB_PATH)
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT lat,lng,severity FROM crime_points ORDER BY RANDOM() LIMIT 5000"
-        ).fetchall()
+        rows = conn.execute("SELECT lat,lng,severity FROM crime_points").fetchall()
         conn.close()
     except sqlite3.OperationalError:
         return ()

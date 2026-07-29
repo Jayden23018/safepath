@@ -22,6 +22,7 @@ GRAPH_DIST_M = 3500
 GRAPH_PATH = "data/walk.graphml"
 PICKLE_PATH = "data/walk.pkl"  # ponytail: 预序列化缓存，运行时 load 替代 ox.load_graphml（31MB XML 解析 2.2s → pkl ~0.5s），救 Vercel serverless 10s 超时。graphml 仍是权威源。
 DB_PATH = "data/safepath.db"
+HEATMAP_SAMPLE_N = 5000  # 热力图固定采样点数：prep 阶段采一次，运行时直接读全表，省掉每次渲染 ORDER BY RANDOM 全表排序。
 
 # 近 3 年（2024–2026）合并，去单年波动。三年 CSV 列名一致（已核验）。
 CRIME_CSV_PATHS = ["data/crime_2024.csv", "data/crime_2025.csv", "data/crime_2026.csv"]
@@ -253,6 +254,8 @@ def write_risk_to_sqlite(risk: pd.DataFrame, db_path: str = DB_PATH) -> None:
     risk[["u", "v", "k", "crime_count", "weighted_crime_sum",
           "length_m", "risk_score", "risk_normalized"]].to_sql(
         "edge_risk", conn, if_exists="replace", index=False)
+    # 服务 app.py 的 ORDER BY risk_normalized DESC LIMIT：无索引是全表排序（80550 行）。
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_edge_risk_risk ON edge_risk(risk_normalized DESC)")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS reported_incidents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -272,10 +275,16 @@ def write_crime_points_to_sqlite(df: pd.DataFrame, db_path: str = DB_PATH) -> No
     用 bbox 过滤后的 df（与路由图同范围），不写全市 23 万原始点。
     severity 复用 SEVERITY 字典，热力图可按犯罪严重度加权。
     app.py 不碰 pandas，故走 SQLite（与 edge_risk 同模式）。
+
+    采样固定 HEATMAP_SAMPLE_N 点（random_state 固定 seed，可复现，非安全用途）在 prep
+    阶段做一次，而非运行时每次渲染 ORDER BY RANDOM() 重采——权衡：热力图从"每次渲染
+    换一批随机点"变成"固定同一批点"，视觉密度分布不变，展示性场景可接受。
     """
     out = df.assign(severity=df["code"].map(SEVERITY).fillna(DEFAULT_SEVERITY))
+    sampled = out.sample(n=min(len(out), HEATMAP_SAMPLE_N), random_state=0)
     conn = sqlite3.connect(db_path)
-    out[["lat", "lng", "severity"]].to_sql("crime_points", conn, if_exists="replace", index=False)
+    sampled[["lat", "lng", "severity"]].to_sql(
+        "crime_points", conn, if_exists="replace", index=False)
     conn.commit()
     conn.close()
 
@@ -477,7 +486,7 @@ def main() -> None:
     print("[5/7] 写 edge_risk + crime_points 到 SQLite…")
     write_risk_to_sqlite(risk)
     write_crime_points_to_sqlite(df)
-    print(f"      {len(df)} 个犯罪点 → crime_points")
+    print(f"      {len(df)} 个犯罪点 → crime_points 采样 {min(len(df), HEATMAP_SAMPLE_N)} 条")
     print("[6/7] 构建 places 表（landmark + intersection + poi）…")
     landmarks = [{"name": n, "lat": float(c[0]), "lng": float(c[1]), "kind": "landmark"}
                  for n, c in PRESET_LOCATIONS.items()]
