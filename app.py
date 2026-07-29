@@ -19,8 +19,9 @@ from flask import Flask, jsonify, flash, redirect, render_template, request, url
 import routing as R
 
 app = Flask(__name__)
-# ponytail: 单进程本地 demo 用固定 secret_key 跑 flash；部署前换环境变量。
-app.secret_key = "safepath-dev-key-change-in-prod"
+# ponytail: 本地 demo 无 SECRET_KEY 环境变量时退回固定 key（flash 不涉及认证，风险低）；
+# 部署到 Vercel 时通过项目环境变量设置 SECRET_KEY。
+app.secret_key = os.environ.get("SECRET_KEY", "safepath-dev-key-change-in-prod")
 
 ALLOWED_REPORT_TYPES = {"sidewalk_damage", "no_ada_ramp", "poor_lighting", "unsafe_crossing"}
 # Philly 大致 bbox，校验上报坐标不跑偏到别的城市
