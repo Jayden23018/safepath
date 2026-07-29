@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import pickle
 import sqlite3
 from typing import Iterable
 
@@ -19,6 +20,7 @@ from routing import PRESET_LOCATIONS  # name → (lat, lng) 12 个地标；routi
 PENN_CENTER = (39.9526, -75.1932)
 GRAPH_DIST_M = 3500
 GRAPH_PATH = "data/walk.graphml"
+PICKLE_PATH = "data/walk.pkl"  # ponytail: 预序列化缓存，运行时 load 替代 ox.load_graphml（31MB XML 解析 2.2s → pkl ~0.5s），救 Vercel serverless 10s 超时。graphml 仍是权威源。
 DB_PATH = "data/safepath.db"
 
 # 近 3 年（2024–2026）合并，去单年波动。三年 CSV 列名一致（已核验）。
@@ -55,12 +57,20 @@ def fetch_walk_graph(
     dist: int = GRAPH_DIST_M,
     path: str = GRAPH_PATH,
 ) -> nx.MultiDiGraph:
-    """缓存步行图：存在则 load_graphml，否则抓取 + 存盘。"""
+    """缓存步行图：存在则 load_graphml，否则抓取 + 存盘。
+
+    同时维护一份 pickle 预解析缓存（运行时 load 快 ~4×）。
+    pkl 过期（比 graphml 旧，或 graphml 被删重抓）时自动重建。
+    """
     if os.path.exists(path):
-        return ox.load_graphml(path)
-    ox.settings.http_user_agent = "safepath@upenn.edu"
-    G = ox.graph_from_point(center, dist=dist, network_type="walk")
-    ox.save_graphml(G, path)
+        G = ox.load_graphml(path)
+    else:
+        ox.settings.http_user_agent = "safepath@upenn.edu"
+        G = ox.graph_from_point(center, dist=dist, network_type="walk")
+        ox.save_graphml(G, path)
+    if not os.path.exists(PICKLE_PATH) or os.path.getmtime(PICKLE_PATH) < os.path.getmtime(path):
+        with open(PICKLE_PATH, "wb") as f:
+            pickle.dump(G, f, protocol=pickle.HIGHEST_PROTOCOL)
     return G
 
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 import functools
 import math
 import os
+import pickle
 import shutil
 import sqlite3
 from typing import Optional
@@ -16,6 +17,7 @@ import networkx as nx
 import osmnx as ox
 
 GRAPH_PATH = "data/walk.graphml"
+PICKLE_PATH = "data/walk.pkl"  # prep_data 产出的预解析缓存；load_graph 优先读它救 serverless 超时
 _BUNDLED_DB_PATH = "data/safepath.db"
 
 
@@ -65,7 +67,26 @@ REPORT_BUMP_FACTOR = 5.0  # safety_weight *= (1 + 5.0 * severity[type])
 
 
 def load_graph(path: str = GRAPH_PATH) -> nx.MultiDiGraph:
-    return ox.load_graphml(path)
+    """优先读 pickle 预解析缓存（~0.5s），缺失或过期时回退 GraphML 并自愈写 pkl。
+
+    Vercel serverless 上每次冷启动都现解析 31MB GraphML（2.2s）+ 赋权（1.4s），
+    叠加重型库 import 易超 10s 上限。pkl 反序列化把解析砍到 ~0.5s。
+
+    安全：walk.pkl 是 prep_data.py 本地产出的派生缓存，从不接收外部输入，随部署包上传——
+    非反序列化不可信数据，pickle 任意代码执行风险不适用。
+    """
+    if os.path.exists(PICKLE_PATH) and (
+        not os.path.exists(path) or os.path.getmtime(PICKLE_PATH) >= os.path.getmtime(path)
+    ):
+        with open(PICKLE_PATH, "rb") as f:
+            return pickle.load(f)
+    G = ox.load_graphml(path)
+    try:
+        with open(PICKLE_PATH, "wb") as f:
+            pickle.dump(G, f, protocol=pickle.HIGHEST_PROTOCOL)
+    except OSError:
+        pass  # ponytail: 只读文件系统（Vercel）写不了 pkl 就算了，下次仍走 graphml；本地/部署前已由 prep_data 写好
+    return G
 
 
 @functools.lru_cache(maxsize=1)

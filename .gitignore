@@ -4,9 +4,11 @@ data/*.csv
 # osmnx HTTP cache
 cache/
 
-# data/safepath.db + data/walk.graphml are committed on purpose:
-# routing.py loads both at runtime (GRAPH_PATH/DB_PATH), so a fresh
-# clone/deploy needs them present without re-running prep_data.py.
+# data/safepath.db + data/walk.graphml + data/walk.pkl are committed on purpose:
+# routing.py loads them at runtime (GRAPH_PATH/PICKLE_PATH/DB_PATH), so a fresh
+# clone/deploy needs them present without re-running prep_data.py. walk.pkl is a
+# prep-derived pickle cache that load_graph reads first to avoid parsing 31MB
+# GraphML every cold start (serverless timeout fix).
 
 # python
 __pycache__/
