@@ -1,4 +1,4 @@
-# 🚶 SafePath
+# SafePath
 
 SafePath is a walking-route planner for the area around Penn. Give it a start and an
 end point and it finds the safest way there, using Philadelphia crime history and
@@ -8,22 +8,6 @@ user-submitted sidewalk reports, instead of just the shortest path.
 
 Final project for a Penn summer program, built solo. It touches three parts of the
 course: Pandas for the data prep, graphs for the routing, Flask for the web app.
-
-## Assignment checklist
-
-- **Runs locally.** `pip install -r requirements.txt` then `python3 app.py`. No extra
-  setup — the repo ships with a pre-built graph and database.
-- **Public GitHub repo + README.** This one.
-- **Points completed: all 3** (2 required)
-  - **Public hosting** — deployed on Vercel: https://safepath-black.vercel.app
-    (config in `vercel.json`).
-  - **Persistent data store** — SQLite, `data/safepath.db`. `prep_data.py` precomputes
-    the `edge_risk`, `crime_points`, and `places` tables; `reported_incidents` is written
-    at runtime, by users, through the endpoint below.
-  - **Meaningful POST** — `POST /report` (`app.py:531`). It inserts the report into
-    `reported_incidents` (`app.py:556`), then clears the routing graph's weight cache
-    (`app.py:562`), so the next `/route` request already reflects that report's risk bump.
-- Built solo, not with a partner.
 
 ## Screenshot
 
@@ -177,9 +161,3 @@ final_project/
     read-only outside `/tmp`, so `/report` writes to a per-instance copy of the
     database that's wiped on the next cold start. Locally (`python3 app.py`), reports
     persist normally.
-
-## Not in this MVP (future work)
-
-- External geocoder for arbitrary street addresses.
-- Time-of-day / lighting-aware risk (currently a single static score per street).
-- Persistent report storage on serverless hosting (needs an external database).
