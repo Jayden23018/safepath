@@ -17,6 +17,7 @@
   --c-minor-bg: #fef9c3;   --c-minor-ink: #854d0e; --c-minor-bar: #ca8a04;
   --c-clear-bg: #dcfce7;   --c-clear-ink: #166534; --c-clear-bar: var(--c-safe);
   --c-danger: #dc2626;
+  --c-caution-bg: #fffbeb; --c-caution-ink: #92400e; --c-caution-bar: #d97706; /* 与 app.py COLOR_REMAIN 同色 */
 
   /* 风险图例渐变（与 app.py risk_color() 端点锁步：绿→黄→红） */
   --c-risk-low: #15803d;
@@ -249,6 +250,7 @@ button.primary:disabled { opacity: .75; }
 [data-avoided] { cursor: help; border-bottom: 1px dotted currentColor; }
 .verdict.minor { border-left-color: var(--c-minor-bar); background: var(--c-minor-bg); color: var(--c-minor-ink); }
 .verdict.clear { border-left-color: var(--c-clear-bar); background: var(--c-clear-bg); color: var(--c-clear-ink); }
+.verdict.caution { margin-top: .5rem; border-left-color: var(--c-caution-bar); background: var(--c-caution-bg); color: var(--c-caution-ink); cursor: help; }
 .verdict .ico { flex: none; margin-top: .05rem; width: 16px; height: 16px; }
 .verdict .ico svg { width: 16px; height: 16px; display: block; }
 
@@ -318,9 +320,42 @@ button.secondary {
 }
 button.secondary:hover { border-color: var(--c-short); background: var(--c-field); }
 
-.panel-foot { padding: .85rem 1.4rem 1.1rem; border-top: 1px solid var(--c-line); font-size: .9rem; }
+.panel-foot { padding: .85rem 1.4rem 1.1rem; border-top: 1px solid var(--c-line); font-size: .9rem; display: flex; flex-wrap: wrap; gap: .3rem .9rem; justify-content: space-between; }
 .panel-foot a { color: var(--c-short); text-decoration: none; }
 .panel-foot a:hover { text-decoration: underline; }
+
+/* ===== 路线说明弹窗（每次算出新路线自动弹出） ===== */
+dialog#route-explainer {
+  max-width: 460px; width: calc(100vw - 2.5rem); padding: 1.6rem 1.7rem 1.3rem;
+  border: none; border-radius: var(--radius); box-shadow: var(--shadow-md);
+  background: var(--c-surface); color: var(--c-ink); font: inherit;
+}
+dialog#route-explainer::backdrop { background: rgba(15,23,42,.45); }
+dialog#route-explainer .dlg-close {
+  position: absolute; top: .7rem; right: .7rem; border: none; background: none;
+  font-size: 1.1rem; line-height: 1; color: var(--c-muted); cursor: pointer; padding: .3rem;
+}
+dialog#route-explainer .dlg-close:hover { color: var(--c-ink); }
+dialog#route-explainer .dlg-title { margin: 0 2rem .8rem 0; font-size: 1.15rem; letter-spacing: -.01em; }
+/* 弹窗内复用 .routes/.verdict（route_compare 宏，跟侧栏一模一样），只压一下外边距 */
+dialog#route-explainer .routes { margin-bottom: .6rem; }
+dialog#route-explainer .verdict { margin-top: .5rem; }
+dialog#route-explainer .dlg-incidents {
+  margin: .8rem 0 0; padding: .6rem .8rem; border-radius: var(--radius-sm);
+  background: var(--c-caution-bg); color: var(--c-caution-ink);
+  border-left: 3px solid var(--c-caution-bar); font-size: 1.02rem; line-height: 1.4;
+}
+dialog#route-explainer .dlg-tips { margin: 0 0 .8rem; padding-left: 1.2rem; font-size: 1rem; line-height: 1.5; }
+dialog#route-explainer .dlg-tips li { margin-bottom: .3rem; }
+dialog#route-explainer .dlg-footnote { margin: 0; font-size: .8rem; line-height: 1.4; color: var(--c-muted); }
+dialog#route-explainer .dlg-foot {
+  margin-top: 1.1rem; padding-top: .85rem; border-top: 1px solid var(--c-line);
+  display: flex; flex-wrap: wrap; align-items: center; gap: .6rem .9rem; font-size: .9rem;
+}
+dialog#route-explainer .dlg-foot label { display: flex; align-items: center; gap: .35rem; color: var(--c-ink-soft); }
+dialog#route-explainer .dlg-foot a { color: var(--c-short); text-decoration: none; }
+dialog#route-explainer .dlg-foot a:hover { text-decoration: underline; }
+dialog#route-explainer .dlg-foot button.primary { margin-left: auto; }
 
 /* ===== flash（浮在面板顶部上方） ===== */
 .flash {

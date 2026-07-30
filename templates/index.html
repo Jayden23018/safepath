@@ -8,6 +8,87 @@
 </head>
 <body>
 
+  {# —— 路线对比卡片（路数网格 + 三态 verdict + caution 提示）：侧栏和弹窗都调用同一份，
+     内容"一模一样"，别在两处各写一遍分叉逻辑。 #}
+  {% macro route_compare(stats) %}
+    <div class="routes">
+      <div class="route-card short" data-route="short">
+        <div class="name">Shortest</div>
+        <div class="hot">{{ stats.shortest.hot_blocks }}<span class="unit"> high-risk</span></div>
+        <div class="dist">{{ stats.shortest.length_m }}<span class="unit"> m</span></div>
+        <div class="meta">{{ stats.shortest.steps }} steps</div>
+      </div>
+      <div class="route-card safe" data-route="safe">
+        <div class="name">Safest</div>
+        <div class="hot">{{ stats.safest.hot_blocks }}<span class="unit"> high-risk</span></div>
+        <div class="dist">{{ stats.safest.length_m }}<span class="unit"> m</span></div>
+        <div class="meta">{{ stats.safest.steps }} steps</div>
+      </div>
+    </div>
+
+    {% if stats.divergence == "none" %}
+      <div class="verdict">
+        <span class="ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>
+        </span>
+        <span>Risk is low here — the shortest route is already the safest, no detour needed.</span>
+      </div>
+    {% elif stats.divergence == "minor" %}
+      <div class="verdict minor">
+        <span class="ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10a3 3 0 0 1 3 3v7"/><path d="M8 3l-4 4 4 4"/><path d="M17 21l4-4-4-4"/></svg>
+        </span>
+        <span>
+          The safer route only shifts at a couple of intersections ({{ (stats.diff_ratio * 100) | round(0) | int }}% of segments differ)
+          {%- if stats.hot_avoided > 0 %}, passing {{ stats.hot_avoided }} fewer high-risk segments{% endif %}.
+        </span>
+      </div>
+    {% else %}
+      <div class="verdict clear">
+        <span class="ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>
+        </span>
+        <span>
+          {% if stats.avoided_count and stats.avoided_count > 0 and not stats.entered_count %}
+            Avoids <span class="badge" data-avoided>{{ stats.avoided_count }}</span>
+            high-risk segments
+            (<span data-avoided>{{ stats.avoided_m }} m</span>,
+            {{ stats.shortest.hot_blocks }} → {{ stats.safest.hot_blocks }}).
+            <span class="hint">Hover to highlight them on the map.</span>
+          {% elif stats.hot_m_cut > 0 %}
+            Cuts high-risk walking from <span data-avoided>{{ stats.shortest.hot_m }} m</span>
+            to {{ stats.safest.hot_m }} m
+            (<span class="badge">−{{ (stats.hot_m_cut * 100) | round(0) | int }}%</span>).
+            <span class="hint">Hover to highlight the segments it skips.</span>
+          {% elif stats.hot_avoided > 0 %}
+            Avoids <span class="badge">{{ stats.hot_avoided }}</span> high-risk segments ({{ stats.shortest.hot_blocks }} → {{ stats.safest.hot_blocks }}),
+          {% elif stats.risk_reduction > 0 %}
+            Takes a different set of streets, cutting risk by <span class="badge">{{ (stats.risk_reduction * 100) | round(0) | int }}%</span>,
+          {% else %}
+            Takes a different set of streets,
+          {% endif %}
+          {{ (stats.diff_ratio * 100) | round(0) | int }}% of segments differ from the shortest route,
+          for {{ stats.detour_m }} m more (+{{ (stats.detour_ratio * 100) | round(1) }}%).
+        </span>
+      </div>
+    {% endif %}
+
+    {% if stats.remaining_count and stats.remaining_count > 0 %}
+      <div class="verdict caution" data-remaining>
+        <span class="ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        </span>
+        <span>
+          Even on this route, <strong>{{ stats.remaining_count }}</strong> segment(s)
+          ({{ stats.remaining_m }} m) still run through historically higher-crime blocks
+          {%- if stats.unavoidable and stats.unavoidable > 0 %} near your origin or destination and can't be routed around{% endif %}.
+          Stay alert there — a "safest" route lowers risk, it doesn't remove it.
+          <span class="hint">Hover to see them on the map (amber dashed).</span>
+        </span>
+      </div>
+    {% endif %}
+  {% endmacro %}
+
   {# —— flash 消息（浮在顶部中央）—— #}
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
@@ -98,80 +179,7 @@
       {% if stats %}
       <section class="compare">
         <p class="section-label">Route comparison</p>
-        <div class="routes">
-          <div class="route-card short" data-route="short">
-            <div class="name">Shortest</div>
-            <div class="hot">{{ stats.shortest.hot_blocks }}<span class="unit"> high-risk</span></div>
-            <div class="dist">{{ stats.shortest.length_m }}<span class="unit"> m</span></div>
-            <div class="meta">{{ stats.shortest.steps }} steps</div>
-          </div>
-          <div class="route-card safe" data-route="safe">
-            <div class="name">Safest</div>
-            <div class="hot">{{ stats.safest.hot_blocks }}<span class="unit"> high-risk</span></div>
-            <div class="dist">{{ stats.safest.length_m }}<span class="unit"> m</span></div>
-            <div class="meta">{{ stats.safest.steps }} steps</div>
-          </div>
-        </div>
-
-        {# 三态语义提示 #}
-        {% if stats.divergence == "none" %}
-          <div class="verdict">
-            <span class="ico" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>
-            </span>
-            <span>Risk is low here — the shortest route is already the safest, no detour needed.</span>
-          </div>
-        {% elif stats.divergence == "minor" %}
-          <div class="verdict minor">
-            <span class="ico" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10a3 3 0 0 1 3 3v7"/><path d="M8 3l-4 4 4 4"/><path d="M17 21l4-4-4-4"/></svg>
-            </span>
-            <span>
-              The safer route only shifts at a couple of intersections ({{ (stats.diff_ratio * 100) | round(0) | int }}% of segments differ)
-              {%- if stats.hot_avoided > 0 %}, passing {{ stats.hot_avoided }} fewer high-risk segments{% endif %}.
-            </span>
-          </div>
-        {% else %}
-          <div class="verdict clear">
-            <span class="ico" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>
-            </span>
-            <span>
-              {# 长路径看高危路段数（总风险被全路径求和摊薄）；短路径没有高危段可避，
-                 但总风险降幅本身就很显著（实测 Van Pelt→Huntsman 降 57%）。 #}
-              {# 起终点本身在高危区时，安全路会离开 N 段又踩进 M 段（段数净差可能为 0）
-                 —— 那种情况下说 "Avoids N" 会和下面的 "can't be routed around" 自相矛盾，
-                 改报高危米数降幅（实测 Market St→Mantua 115.1 → 55.6 m）。 #}
-              {% if stats.avoided_count and stats.avoided_count > 0 and not stats.entered_count %}
-                Avoids <span class="badge" data-avoided>{{ stats.avoided_count }}</span>
-                high-risk segments
-                (<span data-avoided>{{ stats.avoided_m }} m</span>,
-                {{ stats.shortest.hot_blocks }} → {{ stats.safest.hot_blocks }}).
-                <span class="hint">Hover to highlight them on the map.</span>
-              {% elif stats.hot_m_cut > 0 %}
-                Cuts high-risk walking from <span data-avoided>{{ stats.shortest.hot_m }} m</span>
-                to {{ stats.safest.hot_m }} m
-                (<span class="badge">−{{ (stats.hot_m_cut * 100) | round(0) | int }}%</span>).
-                <span class="hint">Hover to highlight the segments it skips.</span>
-              {% elif stats.hot_avoided > 0 %}
-                Avoids <span class="badge">{{ stats.hot_avoided }}</span> high-risk segments ({{ stats.shortest.hot_blocks }} → {{ stats.safest.hot_blocks }}),
-              {% elif stats.risk_reduction > 0 %}
-                Takes a different set of streets, cutting risk by <span class="badge">{{ (stats.risk_reduction * 100) | round(0) | int }}%</span>,
-              {% else %}
-                Takes a different set of streets,
-              {% endif %}
-              {{ (stats.diff_ratio * 100) | round(0) | int }}% of segments differ from the shortest route,
-              for {{ stats.detour_m }} m more (+{{ (stats.detour_ratio * 100) | round(1) }}%).
-            </span>
-            {# 绕不掉的高危段：safest 自己仍留在高危段、且落在端点附近（起点/终点本身是高犯罪锚点）。
-               诚实标注，不假装绕开了（实测 Market St→Mantua 5 段全在起点脚下）。 #}
-            {% if stats.unavoidable and stats.unavoidable > 0 %}
-              <span class="verdict-note">
-                {{ stats.unavoidable }} high-risk segment(s) near your origin or destination can't be routed around.
-              </span>
-            {% endif %}
-          </div>
-        {% endif %}
+        {{ route_compare(stats) }}
       </section>
       {% endif %}
 
@@ -207,9 +215,40 @@
     </div>
 
     <div class="panel-foot">
+      {% if stats %}<a href="#" id="reopen-explainer">Why this route? →</a>{% endif %}
       <a href="/about">Methodology, data sources &amp; limitations →</a>
     </div>
   </aside>
+
+  {% if stats %}
+  {# —— 路线说明弹窗：每次算出新路线自动弹出，"不再提示"走 localStorage —— #}
+  <dialog id="route-explainer">
+    <h2 class="dlg-title">Why this route?</h2>
+    <button class="dlg-close" type="button" data-close aria-label="Close">✕</button>
+
+    {{ route_compare(stats) }}
+
+    {% if stats.incident_summary %}
+    <p class="dlg-incidents">
+      <strong>Nearby history:</strong>
+      {% for i in stats.incident_summary %}<strong>{{ i.category }}</strong> ({{ i.count }}){% if not loop.last %}, {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+
+    <ul class="dlg-tips">
+      <li><strong>Watch intersections</strong> — risk is weighted higher there.</li>
+      <li><strong>"High-risk" = history, not a guarantee.</strong></li>
+    </ul>
+
+    <p class="dlg-footnote">Crime data is a snapshot, updated by hand — routes recompute live every request.</p>
+
+    <div class="dlg-foot">
+      <label><input type="checkbox" id="dlg-dont-show"> Don't show again</label>
+      <a href="/about">Learn more →</a>
+      <button class="primary" type="button" data-close>Got it</button>
+    </div>
+  </dialog>
+  {% endif %}
 
   {# app.js 依赖 folium 注入的 Leaflet (L)；folium 的 leaflet.js 在 <head> 先于此加载 #}
   <script src="{{ url_for('static', filename='app.js') }}"></script>

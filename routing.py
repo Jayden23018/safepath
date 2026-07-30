@@ -122,11 +122,15 @@ def load_risk_weights(G: nx.MultiDiGraph, db_path: str = DB_PATH,
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         risks: list[float] = []
-        for r in conn.execute("SELECT u,v,k,risk_normalized FROM edge_risk"):
+        for r in conn.execute(
+            "SELECT u,v,k,risk_normalized,top_crime_category,top_crime_count FROM edge_risk"
+        ):
             d = G.edges[r["u"], r["v"], r["k"]]
             L = d.get("length", 1.0)
             d["safety_weight"] = L * (1 + alpha * r["risk_normalized"])
             d["risk"] = r["risk_normalized"]
+            d["top_crime_category"] = r["top_crime_category"]
+            d["top_crime_count"] = r["top_crime_count"]
             risks.append(r["risk_normalized"])
         if risks:
             risks.sort()
@@ -226,7 +230,8 @@ def avoided_hot_segments(G_w: nx.MultiDiGraph, on_nodes: list,
         edata = G_w.get_edge_data(u, v)
         if not edata:
             continue
-        risk = max(d.get("risk", 0.0) for d in edata.values())
+        best = max(edata.values(), key=lambda d: d.get("risk", 0.0))
+        risk = best.get("risk", 0.0)
         if risk <= p90:
             continue
         length = min(d.get("length", 1.0) for d in edata.values())
@@ -240,7 +245,9 @@ def avoided_hot_segments(G_w: nx.MultiDiGraph, on_nodes: list,
             coords = [(G_w.nodes[u]["y"], G_w.nodes[u]["x"]),
                       (G_w.nodes[v]["y"], G_w.nodes[v]["x"])]
         out.append({"coords": coords, "length_m": round(length, 1),
-                    "risk": round(risk, 3), "name": name})
+                    "risk": round(risk, 3), "name": name,
+                    "top_crime_category": best.get("top_crime_category"),
+                    "top_crime_count": best.get("top_crime_count")})
     return out
 
 

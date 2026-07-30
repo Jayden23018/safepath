@@ -34,6 +34,25 @@
     </section>
 
     <section>
+      <h2>Why not just the shortest route?</h2>
+      <p>The shortest path treats every street as equal. It isn't — crime clusters heavily
+         on a handful of corridors (Mantua, the Market St corridor, Point Breeze in this
+         dataset), so the straight-line path often cuts straight through a high-risk block
+         to save a few meters. Two measured examples: Penn Park → Mill Creek drops from
+         10 high-risk segments to 0 for +106 m; Van Pelt → 30th St drops from 4 to 0 for
+         +40 m. When origin or destination sits inside a hot corridor itself, the safest
+         route can't fully escape it — see "can't be routed around" below the route
+         comparison — but it still cuts high-risk walking distance (one measured case:
+         115 m → 56 m, −52%).</p>
+      <p class="attrib">Rule of thumb while walking any route here: stay alert near
+         intersections (risk is deliberately weighted higher there — see buffer overlap
+         below), prefer lit main streets after dark over quiet parallel blocks even if
+         SafePath doesn't flag them (no time-of-day or lighting data yet), and treat a
+         "high-risk" tag as elevated <em>historical</em> incident density, not a
+         guarantee something will happen there.</p>
+    </section>
+
+    <section>
       <h2>Data sources</h2>
       <ul>
         <li><strong>Crime incidents</strong> — City of Philadelphia, via OpenDataPhilly
@@ -85,8 +104,13 @@
       <h2>Limitations</h2>
       <ol>
         <li><strong>Proxy, not prediction.</strong> Historical crime density is not future risk.</li>
-        <li><strong>Snapshot, not real-time.</strong> Local CSV; the optional Carto API is not wired
-            to live data in this MVP.</li>
+        <li><strong>Snapshot, not real-time.</strong> Crime risk is a static snapshot from the
+            local CSV (2024–2026, 3 years combined); it only updates when someone re-runs
+            <code>prep_data.py</code> by hand — there is no scheduled refresh and the optional
+            Carto API is not wired to live data in this MVP. <strong>Routes themselves are
+            computed live</strong> on every request (no caching), so a submitted report takes
+            effect on the very next route request — it's the crime layer that's frozen, not
+            the routing.</li>
         <li><strong>Fixed area.</strong> A ~3.5 km radius around Penn; not city-wide.</li>
         <li><strong>Anecdotal sidewalk data.</strong> Reports are user-submitted, sparse, unverified.</li>
         <li><strong>Simple model.</strong> Distance-decayed weighting, single α, no time-of-day

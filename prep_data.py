@@ -235,7 +235,12 @@ def build_edge_risk_table(assigned: pd.DataFrame, G: nx.MultiDiGraph,
     assigned = assigned.assign(sev=assigned["code"].map(SEVERITY).fillna(DEFAULT_SEVERITY))
     assigned["weighted"] = assigned["sev"] * assigned["decay"]
     g = assigned.groupby(["u", "v", "k"])
-    agg = g.agg(crime_count=("code", "size"), weighted_crime_sum=("weighted", "sum")).reset_index()
+    agg = g.agg(
+        crime_count=("code", "size"),
+        weighted_crime_sum=("weighted", "sum"),
+        top_crime_category=("code", lambda s: s.value_counts().index[0]),
+        top_crime_count=("code", lambda s: int(s.value_counts().iloc[0])),
+    ).reset_index()
 
     length_map = {(u, v, k): d.get("length", 1.0) for u, v, k, d in G.edges(keys=True, data=True)}
     agg["length_m"] = [length_map.get((r.u, r.v, r.k), 1.0) for r in agg.itertuples()]
@@ -252,7 +257,8 @@ def write_risk_to_sqlite(risk: pd.DataFrame, db_path: str = DB_PATH) -> None:
     # 不删整个库：to_sql(if_exists="replace") 只重建 edge_risk，reported_incidents 保留。
     conn = sqlite3.connect(db_path)
     risk[["u", "v", "k", "crime_count", "weighted_crime_sum",
-          "length_m", "risk_score", "risk_normalized"]].to_sql(
+          "length_m", "risk_score", "risk_normalized",
+          "top_crime_category", "top_crime_count"]].to_sql(
         "edge_risk", conn, if_exists="replace", index=False)
     # 服务 app.py 的 ORDER BY risk_normalized DESC LIMIT：无索引是全表排序（80550 行）。
     conn.execute("CREATE INDEX IF NOT EXISTS idx_edge_risk_risk ON edge_risk(risk_normalized DESC)")

@@ -33,6 +33,7 @@ function parseReported(raw) {
   function boot() {
     // (A) report 定位按钮 —— 不依赖 MAP，纯父页面 geolocation，可立即绑定。
     bindLocate();
+    wireExplainerModal();
 
     var tries = 0;
     (function poll() {
@@ -43,11 +44,13 @@ function parseReported(raw) {
       }
       var MAP = window[ctx.map], RISK = window[ctx.risk], HEAT = window[ctx.heat];
       var AVOIDED = ctx.avoided ? window[ctx.avoided] : null;
+      var REMAINING = ctx.remaining ? window[ctx.remaining] : null;
       var SHORT = ctx.short ? window[ctx.short] : null;
       var SAFE = ctx.safe ? window[ctx.safe] : null;
-      wireLayers(MAP, RISK, HEAT, AVOIDED, ctx.has_avoided);
+      wireLayers(MAP, RISK, HEAT, AVOIDED, ctx.has_avoided, REMAINING, ctx.has_remaining);
       wireReported(MAP);
-      wireAvoidedHover(MAP, AVOIDED);
+      wireHoverHighlight("[data-avoided]", AVOIDED, 7, 11);
+      wireHoverHighlight("[data-remaining]", REMAINING, 6, 10);
       // C2: 每个 .field[data-search] 装一份 autocomplete（origin/dest 各一）。
       document.querySelectorAll(".field[data-search]").forEach(function (w) { wireAutocomplete(MAP, w); });
       wirePick(MAP);
@@ -85,6 +88,27 @@ function parseReported(raw) {
     });
   }
 
+  // 每次算出新路线自动弹出说明弹窗；"不再提示"走 localStorage。不依赖 Leaflet/CTX，立即绑定。
+  function wireExplainerModal() {
+    var dlg = document.getElementById("route-explainer");
+    if (!dlg) return; // 首页 GET / 时 stats=None，没有这个弹窗，正常
+    var KEY = "sp_hide_route_modal_v1";
+    var dontShow = dlg.querySelector("#dlg-dont-show");
+    Array.prototype.forEach.call(dlg.querySelectorAll("[data-close]"), function (btn) {
+      btn.addEventListener("click", function () { dlg.close(); });
+    });
+    dlg.addEventListener("click", function (e) { if (e.target === dlg) dlg.close(); });
+    dlg.addEventListener("close", function () {
+      if (dontShow.checked) localStorage.setItem(KEY, "1");
+    });
+    var reopen = document.getElementById("reopen-explainer");
+    if (reopen) reopen.addEventListener("click", function (e) {
+      e.preventDefault();
+      dlg.showModal();
+    });
+    if (localStorage.getItem(KEY) !== "1") dlg.showModal();
+  }
+
   // 定位成功后把地图居中到用户位置 + 落 pin 提示，让用户知道定位到哪了。
   // MAP 可能尚未就绪（folium script 还没求值）→ 轮询 window[ctx.map] 直到出现。
   function centerOnLocation(lat, lng) {
@@ -105,13 +129,16 @@ function parseReported(raw) {
   // 初始状态必须与 build_map 的 show= 一致：risk show=True→active，heat show=False→inactive，
   // avoided show=True→active（仅 /route 有，has_avoided 控制按钮显隐）。
   // 按钮由文字 + 内联 SVG 组合，静态无外部数据 → 用 DOM 构造避免 innerHTML（防御性）。
-  function wireLayers(MAP, RISK, HEAT, AVOIDED, hasAvoided) {
+  function wireLayers(MAP, RISK, HEAT, AVOIDED, hasAvoided, REMAINING, hasRemaining) {
     var box = document.createElement("div");
     box.className = "sp-layer-toggle";
     box.appendChild(layerBtn(STREET_ICON, "Risk streets", "risk", true, MAP, RISK, syncLegend));
     box.appendChild(layerBtn(HEAT_ICON, "Crime heat", "heat", false, MAP, HEAT));
     if (hasAvoided && AVOIDED) {
       box.appendChild(layerBtn(AVOID_ICON, "Avoided", "avoided", true, MAP, AVOIDED));
+    }
+    if (hasRemaining && REMAINING) {
+      box.appendChild(layerBtn(CAUTION_ICON, "Still risky", "remaining", true, MAP, REMAINING));
     }
     document.querySelector(".map-stage").appendChild(box);
   }
@@ -120,6 +147,7 @@ function parseReported(raw) {
   var STREET_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19l4-14M14 5l4 14"/><path d="M3 9h6M13 13h6"/></svg>';
   var HEAT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s5 6 5 10a5 5 0 0 1-10 0c0-4 5-10 5-10z"/></svg>';
   var AVOID_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>';
+  var CAUTION_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>';
 
   function layerBtn(icon, label, name, startOn, MAP, layer, onChange) {
     var btn = document.createElement("button");
@@ -161,16 +189,16 @@ function parseReported(raw) {
     L.marker([parts[0], parts[1]], { icon: pinIcon() }).addTo(MAP).bindTooltip("Just reported here").openTooltip();
   }
 
-  // (D) hover 面板"避开高危路段"区 → 地图红段脉冲（加粗+提亮）。
-  // 纯 setStyle，无动画库。avoided 图层为空（首页）时该区不渲染，此处 no-op。
-  function wireAvoidedHover(MAP, AVOIDED) {
-    var trigger = document.querySelector("[data-avoided]");
-    if (!trigger || !AVOIDED) return;
+  // (D) hover 面板"避开高危路段" / "仍留着的高危段" 区 → 对应地图线段脉冲（加粗+提亮）。
+  // 纯 setStyle，无动画库。图层为空（首页，或本次路线没有该类段）时该区不渲染，此处 no-op。
+  function wireHoverHighlight(selector, layer, baseW, hoverW) {
+    var trigger = document.querySelector(selector);
+    if (!trigger || !layer) return;
     trigger.addEventListener("mouseenter", function () {
-      AVOIDED.eachLayer(function (lyr) { lyr.setStyle({ weight: 11, opacity: 1 }); });
+      layer.eachLayer(function (lyr) { lyr.setStyle({ weight: hoverW, opacity: 1 }); });
     });
     trigger.addEventListener("mouseleave", function () {
-      AVOIDED.eachLayer(function (lyr) { lyr.setStyle({ weight: 7, opacity: 0.95 }); });
+      layer.eachLayer(function (lyr) { lyr.setStyle({ weight: baseW, opacity: 0.95 }); });
     });
   }
 

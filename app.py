@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import functools
+from collections import Counter
 from typing import Optional
 
 import folium
@@ -37,6 +38,7 @@ TILES_ATTR = '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> &copy
 COLOR_SHORT = "#2563eb"
 COLOR_SAFE = "#15803d"
 COLOR_DANGER = "#dc2626"  # 避开的高危段（比路线更醒目的红）
+COLOR_REMAIN = "#d97706"  # 安全路线自己仍留着的高危段（琥珀色，区别于"避开"的红）
 
 # minor 阈值：两条路线的「不同路段占比」< 此值才算"隔街级微绕"。
 #
@@ -137,6 +139,7 @@ def build_map(
     routes: Optional[tuple[dict, dict]] = None,
     reported: Optional[tuple[float, float]] = None,
     avoided: Optional[list[dict]] = None,
+    remaining: Optional[list[dict]] = None,
 ) -> str:
     """folium 地图：浅色底图 + 两个可切换风险图层 + 路线。返回无 iframe 的完整 HTML。
 
@@ -208,8 +211,20 @@ def build_map(
                             tooltip=f"Avoided · {seg['length_m']} m").add_to(avoided_layer)
     avoided_layer.add_to(m)  # 最后加 → 最上层，不被路线盖住
 
+    # 图层4：安全路线自己仍留着的高危段（琥珀虚线+警示图标）。即使选了"更安全"，
+    # 起终点附近的高危段也可能绕不掉（见 avoided_hot_segments 文档）——诚实标出来，
+    # 别让"safest"这个名字暗示"零风险"。仅 /route 提供。
+    remaining_layer = folium.FeatureGroup(name="Still risky on your route", show=True)
+    has_remaining = bool(remaining)
+    if has_remaining:
+        for seg in remaining:
+            folium.PolyLine(seg["coords"], color=COLOR_REMAIN, weight=6,
+                            opacity=0.9, dash_array="4,8",
+                            tooltip=f"Still elevated risk here · {seg['length_m']} m").add_to(remaining_layer)
+    remaining_layer.add_to(m)
+
     _inject_frontend(m, risk_edges, heat, avoided_layer, reported, has_avoided,
-                     short_layer, safe_layer)
+                     short_layer, safe_layer, remaining_layer, has_remaining)
     return m.get_root().render()
 
 
@@ -222,6 +237,8 @@ def _inject_frontend(
     has_avoided: bool = False,
     short_layer: Optional[folium.FeatureGroup] = None,
     safe_layer: Optional[folium.FeatureGroup] = None,
+    remaining_layer: Optional[folium.FeatureGroup] = None,
+    has_remaining: bool = False,
 ) -> None:
     """把 folium 变量名 + 上报点交给外部 app.js，并注入自建图层 toggle 的 HTML/CSS。
 
@@ -234,10 +251,13 @@ def _inject_frontend(
     root = m.get_root()
     short_name = short_layer.get_name() if short_layer else ""
     safe_name = safe_layer.get_name() if safe_layer else ""
+    remaining_name = remaining_layer.get_name() if remaining_layer else ""
     ctx = (f"window.SAFEPATH_CTX={{map:'{m.get_name()}',risk:'{risk_edges.get_name()}',"
            f"heat:'{heat.get_name()}',avoided:'{avoided.get_name()}',"
            f"has_avoided:{'true' if has_avoided else 'false'},"
-           f"short:'{short_name}',safe:'{safe_name}'}};")
+           f"short:'{short_name}',safe:'{safe_name}',"
+           f"remaining:'{remaining_name}',"
+           f"has_remaining:{'true' if has_remaining else 'false'}}};")
     snippet = ctx
     if reported is not None:
         snippet += f"window.SAFEPATH_REPORTED=[{reported[0]:.6f},{reported[1]:.6f}];"
@@ -456,6 +476,18 @@ def route():
                       if i < edge_band or i >= n_edges - edge_band)
     # 高危米数降幅：段数净差为 0 时（两端都在高危区）它是唯一站得住的数字。
     hot_m_cut = (shortest["hot_m"] - safest["hot_m"]) / shortest["hot_m"] if shortest["hot_m"] else 0.0
+    # 安全路线自己仍留着的全部高危段（不止端点附近）：off_nodes=[] 让 avoided_hot_segments
+    # 不排除任何边，等价于"safest 路径上 risk>p90 的边"，直接复用同一函数不用再写一遍。
+    # 地图上画出来 + 文案里说清楚——"更安全"不等于"零风险"。
+    remaining = R.avoided_hot_segments(Gw, safest["nodes"], [])
+
+    # avoided/remaining 互斥（avoided 排除两路共有边，remaining 是 safest 全部高危边），
+    # 求和不会重复计数同一条边；entered 是 remaining 的子集，不用单独并进来。
+    cat_counts = Counter()
+    for seg in avoided + remaining:
+        if seg.get("top_crime_category"):
+            cat_counts[seg["top_crime_category"]] += seg.get("top_crime_count") or 1
+    incident_summary = [{"category": c, "count": n} for c, n in cat_counts.most_common(3)]
 
     stats = {
         "shortest": {"length_m": shortest["length_m"], "total_risk": shortest["total_risk"],
@@ -482,8 +514,13 @@ def route():
         "hot_m_cut": round(max(hot_m_cut, 0.0), 3),
         # 起终点附近绕不掉的高危段数（诚实标注）。
         "unavoidable": unavoidable,
+        # 安全路线自身仍经过的高危段（全部，不限端点附近）+ 米数，供"仍需留意"提示。
+        "remaining": remaining,
+        "remaining_count": len(remaining),
+        "remaining_m": round(sum(s["length_m"] for s in remaining), 1),
+        "incident_summary": incident_summary,
     }
-    map_html = build_map((shortest, safest), avoided=avoided)
+    map_html = build_map((shortest, safest), avoided=avoided, remaining=remaining)
     return render_template("index.html", map_html=map_html, stats=stats,
                            last_origin_label=last_origin_label,
                            last_origin_lat=op[0], last_origin_lng=op[1],
