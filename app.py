@@ -43,10 +43,10 @@ COLOR_REMAIN = "#d97706"  # 安全路线自己仍留着的高危段（琥珀色�
 # minor 阈值：两条路线的「不同路段占比」< 此值才算"隔街级微绕"。
 #
 # 为什么不用绕路比：费城是曼哈顿网格，换一条平行街走 staircase 几何上天差地别、
-# 总长度几乎不变。实测 Penn Park→Mill Creek 两条路只有 15% 节点重合（85% 不同），
-# 绕路却仅 +2.2%；按旧的 5% 绕路比阈值会被判成 "minor" 弱化掉——把最强的证据扔了。
-# 实测四对起终点的不同占比 48%/57%/71%/85%，0.25 把它们都收进 clear，且给
-# 真·隔街微绕（不同占比通常 <15%）留出余量。
+# 总长度几乎不变。实测 Penn Park→Mill Creek 两条路 92% 的路段不同（diff_ratio 0.922），
+# 绕路却只有 +106.6 m（+3.4%）；按旧的 5% 绕路比阈值会被判成 "minor" 弱化掉——
+# 把最强的证据扔了。实测四对起终点的 diff_ratio 是 0.922 / 0.544 / 0.927 / 0.615，
+# 0.25 把它们都收进 clear，且给真·隔街微绕（diff_ratio 通常 <0.15）留出余量。
 # ponytail: 0.25 是基于实测分布的经验值；升级路径=按路网密度自适应。
 MINOR_DIFF_RATIO = 0.25
 
@@ -133,6 +133,20 @@ def classify_divergence(short_nodes: list, safe_nodes: list,
         "detour_m": round(detour_m, 1),
         "detour_ratio": round(detour_ratio, 3),
     }
+
+
+def incident_types(segments: list[dict], top: int = 3) -> list[str]:
+    """高危路段上最常见的犯罪类型名，按「有多少段以它为首位」排名。纯函数。
+
+    **只返回类型，不返回数量**，这是刻意的：prep_data 把每个犯罪点分给 120m 缓冲带内的
+    所有边（全库 sum(crime_count)=1198 万 vs bbox 内 10.7 万个点，一起案件平均落在 112 条边上），
+    沿路径把 top_crime_count 加起来等于把同一起案件数上百次——曾在 10 段路上渲染出
+    "Fraud (1850)"。边级表里没有 dc_key，去重后的真实案件数在这个数据结构里导不出来，
+    所以只报排名。CLAUDE.md 早就禁止跨平行边求和，同一个理由对沿路径求和成立。
+    H13 锁住"不带数量、排名不被单条边的巨大 count 带偏"。
+    """
+    counts = Counter(s["top_crime_category"] for s in segments if s.get("top_crime_category"))
+    return [c for c, _ in counts.most_common(top)]
 
 
 def build_map(
@@ -482,12 +496,8 @@ def route():
     remaining = R.avoided_hot_segments(Gw, safest["nodes"], [])
 
     # avoided/remaining 互斥（avoided 排除两路共有边，remaining 是 safest 全部高危边），
-    # 求和不会重复计数同一条边；entered 是 remaining 的子集，不用单独并进来。
-    cat_counts = Counter()
-    for seg in avoided + remaining:
-        if seg.get("top_crime_category"):
-            cat_counts[seg["top_crime_category"]] += seg.get("top_crime_count") or 1
-    incident_summary = [{"category": c, "count": n} for c, n in cat_counts.most_common(3)]
+    # 拼起来不会重复计入同一条边；entered 是 remaining 的子集，不用单独并进来。
+    incident_summary = incident_types(avoided + remaining)
 
     stats = {
         "shortest": {"length_m": shortest["length_m"], "total_risk": shortest["total_risk"],
@@ -518,6 +528,7 @@ def route():
         "remaining": remaining,
         "remaining_count": len(remaining),
         "remaining_m": round(sum(s["length_m"] for s in remaining), 1),
+        # list[str]：flagged 路段上最常见的犯罪类型名（top 3），**不带数量**，理由见 incident_types。
         "incident_summary": incident_summary,
     }
     map_html = build_map((shortest, safest), avoided=avoided, remaining=remaining)
@@ -597,6 +608,28 @@ def _check_divergence_logic():
     f = classify_divergence(a, c, 1000.0, 950.0)
     assert f["detour_m"] == 0.0 and f["detour_ratio"] == 0.0 and f["divergence"] == "clear"
     print("OK H5: classify_divergence 三态 (按 diff_ratio，非 detour_ratio)")
+
+
+def _check_incident_types():
+    """H13: incident_types 只报类型名、按段数排名——绝不跨路段求和 top_crime_count。
+
+    120m 缓冲带让同一个犯罪点被分给带内所有边，沿路径求和会把案件数翻上百倍
+    （曾在 10 段路上渲染出 "Fraud (1850)"，实测单边 top_crime_count 最大 1543）。
+    """
+    segs = [
+        {"top_crime_category": "Fraud", "top_crime_count": 1543},  # 只 1 段，但计数巨大
+        {"top_crime_category": "Thefts", "top_crime_count": 3},
+        {"top_crime_category": "Thefts", "top_crime_count": 2},
+        {"top_crime_category": None, "top_crime_count": 9},        # 无类型的段跳过
+        {"length_m": 12.0},                                        # 缺字段也不能炸
+    ]
+    out = incident_types(segs)
+    # 2 段的 Thefts 胜 1 段的 Fraud —— 若改回 sum(count) 排名，Fraud(1543) 会窜到第一
+    assert out == ["Thefts", "Fraud"], out
+    assert all(isinstance(c, str) for c in out), out   # 返回值里没有任何数量
+    assert incident_types([]) == []
+    assert len(incident_types([{"top_crime_category": c} for c in "abcd"])) == 3  # top 3 截断
+    print("OK H13: incident_types 只报类型、按段数排名 (不 sum top_crime_count)")
 
 
 def _check_snap_guard():
@@ -706,6 +739,7 @@ if __name__ == "__main__":
     import sys
     if "--check" in sys.argv:
         _check_divergence_logic()
+        _check_incident_types()
         _check_snap_guard()
         _check_like_escape()
         _check_search_places()

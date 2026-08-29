@@ -57,10 +57,12 @@ form that quietly disappears into a database.
   landmarks, intersections, and points of interest. No external geocoder, so it works
   offline.
 - Opens a "Why this route?" popup on every computed route — you can dismiss it, and
-  tell it not to show again. It mirrors the sidebar's route comparison and adds
-  specific historical incident types, like "Thefts (19), Robbery No Firearm (2)",
-  pulled from the same crime-to-edge aggregation that scores the route in the first
-  place.
+  tell it not to show again. It mirrors the sidebar's route comparison and adds the
+  most common historical incident types on the flagged segments, like "Fraud, Other
+  Assaults, Thefts", pulled from the same crime-to-edge aggregation that scores the
+  route in the first place. They are ranked but deliberately not counted: each incident
+  is assigned to every street within 120 m, so a per-route total would count the same
+  one many times over.
 - Accepts reports of sidewalk damage, missing ADA ramps, poor lighting, or unsafe
   crossings. Reports get saved to SQLite and bump the nearest edge's weight, so a
   submitted report changes future routes.

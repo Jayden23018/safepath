@@ -106,7 +106,8 @@ def load_risk_weights(G: nx.MultiDiGraph, db_path: str = DB_PATH,
 
     - 有 edge_risk 记录的边：length*(1+alpha*risk_normalized)，并把 risk_normalized
       存到边属性 `risk` 供高危路段计数（compute_route 的 hot_blocks）。
-    - 用户上报：nearest_edges 找最近边，safety_weight *= (1+0.3*sev)。
+    - 用户上报：nearest_edges 找最近边，safety_weight *= (1 + REPORT_BUMP_FACTOR*sev)，
+      当前 REPORT_BUMP_FACTOR = 5.0（计划原值 0.3 太弱，见该常量处的注释）。
     - 其余边：safety_weight = length（零犯罪）、risk = 0。
 
     同时把 risk 的 p90 存到 `G.graph["risk_p90"]` —— 高危路段的判定阈值随数据走，
@@ -174,7 +175,7 @@ def compute_route(G_w: nx.MultiDiGraph, origin_id: int, dest_id: int,
 
     除长度/总风险外还数 `hot_blocks` —— 路径上 risk > p90 的路段数。总风险是全路径
     求和、风险场平滑，两条路差距被摊薄到 1-2%（实测）；高危路段数才看得出差别
-    （实测 Penn Park→Mill Creek: 13 → 6）。这是对比展示的主指标。
+    （实测 Penn Park→Mill Creek: 10 → 0）。这是对比展示的主指标。
     """
     weight = "safety_weight" if mode == "safest" else "length"
     nodes = nx.shortest_path(G_w, origin_id, dest_id, weight=weight)

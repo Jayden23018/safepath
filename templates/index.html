@@ -228,10 +228,15 @@
 
     {{ route_compare(stats) }}
 
+    {# incident_summary 是 list[str]（类型名，无数量）—— 见 app.py:incident_types 的理由 #}
     {% if stats.incident_summary %}
     <p class="dlg-incidents">
       <strong>Nearby history:</strong>
-      {% for i in stats.incident_summary %}<strong>{{ i.category }}</strong> ({{ i.count }}){% if not loop.last %}, {% endif %}{% endfor %}
+      {% for c in stats.incident_summary %}<strong>{{ c }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}
+      — the incident {{ 'type' if stats.incident_summary|length == 1 else 'types' }} recorded
+      most often on the flagged segments.
+      <small>Ranked, not counted: each incident is assigned to every street within 120 m,
+      so a per-route total would count the same one many times over.</small>
     </p>
     {% endif %}
 
