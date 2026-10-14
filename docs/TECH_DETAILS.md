@@ -66,7 +66,7 @@ OpenStreetMap ──────┤  抓步行图 → 读 CSV → 去重 → bbo
 | 空间计算 | GeoPandas / Shapely | 1.1.4 / 2.1.2 |
 | 地图渲染 | folium（内含 Leaflet） | 0.20.0 |
 | 持久化 | SQLite（`sqlite3` 标准库） | 随 Python |
-| 底图 | CARTO light_all 瓦片 | — |
+| 底图 | OpenFreeMap Positron 矢量瓦片（MapLibre GL + maplibre-gl-leaflet，CDN 加载） | maplibre-gl 5.24.0 / maplibre-gl-leaflet 0.1.4 |
 | 部署 | Vercel Serverless（`vercel.json`，`maxDuration: 60`） | — |
 
 > **踩过的版本坑**：OSMnx 2.0.7 里 `nearest_nodes` / `nearest_edges` 在 `ox.distance` 下，

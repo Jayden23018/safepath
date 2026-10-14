@@ -14,7 +14,9 @@ from collections import Counter
 from typing import Optional
 
 import folium
+from folium.elements import JSCSSMixin, MacroElement
 from folium.plugins import HeatMap
+from folium.template import Template
 from flask import Flask, jsonify, flash, redirect, render_template, request, url_for
 
 import routing as R
@@ -30,9 +32,14 @@ PHILLY_BBOX = ((39.86, -75.32), (40.15, -74.90))  # (lat_min,lng_min)-(lat_max,l
 
 # 默认地图中心（与 prep_data.PENN_CENTER 一致；扩到 3.5km 后不再硬编 Van Pelt）
 PENN_CENTER = (39.9526, -75.1932)
-# CartoDB 浅色底图（免费，demo 够用；备选 voyager 暖灰、OSM 标准 tiles）
-LIGHT_TILES = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-TILES_ATTR = '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> &copy; <a href="https://carto.com/attribution">CARTO</a>'
+# 浅色底图：OpenFreeMap 的 Positron 矢量样式（免费、无 key、不注册、允许商用；openfreemap.org，2026-10-14 核）。
+# 原来的 CARTO light_all 栅格瓦片自 2026-09-25 起无 key 只返回「API KEY REQUIRED」图
+# （docs.carto.com/faqs/carto-basemaps），HTTP 仍是 200，所以不会报错、只会静默变成水印。
+# OpenFreeMap 只出矢量瓦片 → Leaflet 靠 maplibre-gl-leaflet 插件渲染，见 VectorBasemap。
+BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron"
+BASEMAP_ATTR = ('<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> '
+                '<a href="https://www.openmaptiles.org/" target="_blank">&copy; OpenMapTiles</a> '
+                'Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>')
 
 # 路线对比配色（实色，亮色底图；与 style.css 的 --c-short / --c-safe / --c-danger 锁步同步）
 COLOR_SHORT = "#2563eb"
@@ -149,6 +156,36 @@ def incident_types(segments: list[dict], top: int = 3) -> list[str]:
     return [c for c, _ in counts.most_common(top)]
 
 
+class VectorBasemap(JSCSSMixin, MacroElement):
+    """矢量瓦片底图：L.maplibreGL 图层（maplibre-gl-leaflet 插件），挂在 Leaflet 的 tilePane。
+
+    写法照抄 folium 自带插件（HeatMap 等）：JSCSSMixin 在父元素（Map）之后往 <head> 塞脚本，
+    所以插件一定排在 leaflet.js 后面（H14 锁住）。
+    maplibre-gl 钉 5.x：6.x 只发 ES 模块，没有插件依赖的全局 maplibregl。
+    署名必须显式传：Positron 样式的数据源不带 attribution 字段，插件自动取会取到空串。
+    """
+
+    _template = Template("""
+        {% macro script(this, kwargs) %}
+            L.maplibreGL({{ this.options|tojson }}).addTo({{ this._parent.get_name() }});
+        {% endmacro %}
+    """)
+
+    default_js = [
+        ("maplibre_gl", "https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"),
+        ("maplibre_gl_leaflet",
+         "https://cdn.jsdelivr.net/npm/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"),
+    ]
+    default_css = [
+        ("maplibre_gl_css", "https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css"),
+    ]
+
+    def __init__(self, style: str, attribution: str):
+        super().__init__()
+        self._name = "VectorBasemap"
+        self.options = {"style": style, "attributionControl": {"customAttribution": attribution}}
+
+
 def build_map(
     routes: Optional[tuple[dict, dict]] = None,
     reported: Optional[tuple[float, float]] = None,
@@ -169,8 +206,9 @@ def build_map(
     reported: 上报点 (lat,lng)，由 app.js 读 window.SAFEPATH_REPORTED 定位高亮。
     """
     # zoom_control 挪右下：左上是搜索框/图例区，默认左上的 +/- 会压住。folium 0.20 接受位置串。
-    m = folium.Map(location=PENN_CENTER, zoom_start=15, tiles=LIGHT_TILES, attr=TILES_ATTR,
+    m = folium.Map(location=PENN_CENTER, zoom_start=15, tiles=None,
                    zoom_control="bottomright")
+    VectorBasemap(BASEMAP_STYLE, BASEMAP_ATTR).add_to(m)
 
     # 图层1：风险上色街道（只画 risk 较高的边——80k 条全画会卡，低风险边视觉本就绿色无信息）
     # 单个 GeoJson 装下所有边，不再逐条构造 folium.PolyLine（20000 个对象拖慢渲染）。
@@ -735,6 +773,24 @@ def _check_search_places_fallback():
     print("OK H12: places 表缺失 → /search 回落 PRESET_LOCATIONS 过滤 (不 500)")
 
 
+def _check_basemap():
+    """H14: 底图走 OpenFreeMap 矢量样式，不再引用 CARTO 栅格瓦片；插件脚本排在 leaflet.js 后。
+
+    CARTO 无 key 请求返回 200 + 水印图，浏览器和服务端都不报错——谁把 cartocdn 加回来只能靠这条发现。
+    插件是 IIFE，加载时直接读全局 L 和 maplibregl，顺序错了底图整块空白。
+    """
+    html = build_map()
+    assert "basemaps.cartocdn.com" not in html
+    assert BASEMAP_STYLE in html
+    assert "OpenMapTiles" in html and "openstreetmap.org/copyright" in html  # 署名进了 customAttribution
+    i_leaflet = html.index("/leaflet.js")
+    i_gl = html.index("/maplibre-gl.js")
+    i_plugin = html.index("/leaflet-maplibre-gl.js")
+    assert i_leaflet < i_plugin and i_gl < i_plugin, (i_leaflet, i_gl, i_plugin)
+    assert "L.maplibreGL(" in html
+    print("OK H14: 底图 = OpenFreeMap Positron (无 cartocdn; 插件在 leaflet/maplibre-gl 之后加载)")
+
+
 if __name__ == "__main__":
     import sys
     if "--check" in sys.argv:
@@ -744,6 +800,7 @@ if __name__ == "__main__":
         _check_like_escape()
         _check_search_places()
         _check_search_places_fallback()
+        _check_basemap()
         print("app self-checks passed")
     else:
         app.run(debug=True)

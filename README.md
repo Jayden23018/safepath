@@ -131,7 +131,9 @@ final_project/
 - **Walking network** — © OpenStreetMap contributors, via [OSMnx](https://osmnx.readthedocs.io/).
 - **Sidewalk / ADA conditions** — user-submitted only; no open dataset used.
 - **Map rendering** — [Folium](https://python-visualization.github.io/folium/) /
-  [Leaflet](https://leafletjs.com), basemap tiles © [CARTO](https://carto.com/attribution).
+  [Leaflet](https://leafletjs.com); basemap [OpenFreeMap](https://openfreemap.org) Positron
+  (© [OpenMapTiles](https://www.openmaptiles.org/), data © OpenStreetMap), drawn with
+  [MapLibre GL Leaflet](https://github.com/maplibre/maplibre-gl-leaflet).
 
 ## Limitations (read before trusting a route)
 
