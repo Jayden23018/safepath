@@ -66,7 +66,7 @@
           dataset for Philadelphia sidewalk condition / ADA ramp status was used.</li>
       </ul>
       <p class="attrib">Crime data © City of Philadelphia / Philadelphia Police Department.
-         Map data © OpenStreetMap contributors. Light basemap © CARTO.</p>
+         Map data © OpenStreetMap contributors. Light basemap: OpenFreeMap Positron © OpenMapTiles.</p>
     </section>
 
     <section>
@@ -129,6 +129,10 @@
             <code>navigator.geolocation</code>, which browsers only expose over HTTPS (or
             <code>localhost</code>, as in this local demo). Deploy behind HTTPS for the button to
             work in production; manual coordinate entry is the fallback.</li>
+        <li><strong>The basemap is a free third-party service.</strong> Background streets come
+            from OpenFreeMap's public tile server (no key, no SLA) and are drawn with WebGL. If
+            that server is down or WebGL is disabled, the background stays blank; routes and risk
+            layers still draw on top.</li>
       </ol>
     </section>
 
