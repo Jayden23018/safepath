@@ -165,3 +165,7 @@ final_project/
     read-only outside `/tmp`, so `/report` writes to a per-instance copy of the
     database that's wiped on the next cold start. Locally (`python3 app.py`), reports
     persist normally.
+14. **The basemap is a free third-party service.** Background streets and labels come
+    from OpenFreeMap's public tile server (no key, no SLA) and are drawn with WebGL. If
+    that server is down or the browser has WebGL disabled, the map background stays blank;
+    routes and risk layers still draw on top.
