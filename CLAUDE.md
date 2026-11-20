@@ -90,3 +90,6 @@ python3 app.py --check # H5 分叉三态分类（按 diff_ratio）/ H8 点选 sn
 - 地点搜索纯本地 places 表：搜不到门牌号地址，要外部 geocoder，而它会破坏断网 demo。
 - combobox 候选列表走正常文档流（`position:absolute` 会被 `.panel` 的 `overflow-y:auto` 裁掉），展开时把下面字段推下略有跳动。升级路径 `position:fixed`+`getBoundingClientRect`。
 - 地图取点只显示坐标本身，不做反向地理编码。
+
+## 主动建议哪些 skill
+只主动建议这组：python-reviewer、code-review、context7。
